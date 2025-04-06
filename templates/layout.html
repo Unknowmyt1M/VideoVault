@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube to Drive - Auto Downloader</title>
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Google Fonts: Google Sans and Roboto -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    
+    <!-- Additional responsive styles -->
+    <style>
+        @media (max-width: 768px) {
+            .mobile-stack {
+                flex-direction: column !important;
+            }
+            
+            .mobile-stack .nav-item {
+                margin-bottom: 10px;
+            }
+            
+            .mobile-full-width {
+                width: 100% !important;
+                text-align: center;
+            }
+            
+            .mobile-mt-3 {
+                margin-top: 15px !important;
+            }
+            
+            .mobile-hide {
+                display: none !important;
+            }
+            
+            .mobile-show {
+                display: block !important;
+            }
+            
+            .navbar-toggler {
+                display: block !important;
+            }
+            
+            .collapse:not(.show) {
+                display: none !important;
+            }
+        }
+        
+        .navbar-toggler {
+            border: none;
+            background: transparent !important;
+            display: none;
+        }
+        
+        .mobile-show {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <header class="py-3 shadow-sm sticky-top">
+        <div class="container">
+            <nav class="navbar navbar-expand-lg p-0">
+                <a href="/" class="navbar-brand text-decoration-none">
+                    <div class="d-flex align-items-center">
+                        <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="YouTube to Drive Logo" height="40" onerror="this.src='https://via.placeholder.com/40x40?text=YTD';this.onerror='';">
+                        <h1 class="ms-2 mb-0 h4">YouTube to Drive</h1>
+                    </div>
+                </a>
+                
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent">
+                    <i class="fas fa-bars"></i>
+                </button>
+                
+                <div class="collapse navbar-collapse" id="navbarContent">
+                    <ul class="navbar-nav ms-auto mb-2 mb-lg-0 align-items-center">
+                        <li class="nav-item">
+                            <a class="nav-link px-3" href="/">Home</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link px-3" href="/history_page">History</a>
+                        </li>
+                        <li class="nav-item ms-lg-2">
+                            {% if 'credentials' in session %}
+                                <a href="/logout" class="btn btn-success">
+                                    <i class="fas fa-check-circle me-2"></i><span class="d-none d-md-inline">Connected</span> (Logout)
+                                </a>
+                            {% else %}
+                                <a href="/auth" class="btn btn-outline-primary">
+                                    <i class="fab fa-google me-2"></i>Connect to Google Drive
+                                </a>
+                            {% endif %}
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container py-4">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="mt-5 py-3 text-center text-muted">
+        <div class="container">
+            <p class="mb-0">YouTube to Drive Downloader &copy; 2025</p>
+        </div>
+    </footer>
+
+    <!-- Bootstrap 5 JS Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Page Loader -->
+    <div class="page-loader">
+        <div class="loader"></div>
+    </div>
+
+    <!-- Custom JavaScript -->
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const loader = document.querySelector('.page-loader');
+            
+            // Show loader before page navigation
+            document.querySelectorAll('a').forEach(link => {
+                link.addEventListener('click', function(e) {
+                    if (!this.hasAttribute('target')) {
+                        e.preventDefault();
+                        loader.classList.add('active');
+                        setTimeout(() => {
+                            window.location.href = this.href;
+                        }, 300);
+                    }
+                });
+            });
+
+            // Hide loader when page loads
+            window.addEventListener('load', function() {
+                loader.classList.remove('active');
+            });
+        });
+    </script>
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html>

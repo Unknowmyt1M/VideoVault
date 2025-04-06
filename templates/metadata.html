@@ -1,0 +1,144 @@
+
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h2 class="card-title text-center mb-4">Extract Video Metadata</h2>
+                    
+                    <form id="metadata-form" class="mb-4">
+                        <div class="input-group">
+                            <input type="url" id="youtube-url" class="form-control form-control-lg" 
+                                   placeholder="Paste YouTube URL here" required>
+                            <button class="btn btn-primary px-4" type="submit">
+                                <i class="fas fa-search me-2"></i>Extract
+                            </button>
+                        </div>
+                    </form>
+
+                    <div id="metadata-result" class="d-none">
+                        <div class="metadata-item mb-3">
+                            <label class="fw-bold">Title</label>
+                            <div class="d-flex align-items-center">
+                                <div class="form-control bg-dark text-light" id="video-title"></div>
+                                <button class="btn btn-outline-primary ms-2 copy-btn" data-copy="video-title">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="metadata-item mb-3">
+                            <label class="fw-bold">Description</label>
+                            <div class="d-flex align-items-center">
+                                <div class="form-control bg-dark text-light" id="video-description"></div>
+                                <button class="btn btn-outline-primary ms-2 copy-btn" data-copy="video-description">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="metadata-item mb-3">
+                            <label class="fw-bold">Channel</label>
+                            <div class="d-flex align-items-center">
+                                <div class="form-control bg-dark text-light" id="video-channel"></div>
+                                <button class="btn btn-outline-primary ms-2 copy-btn" data-copy="video-channel">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="metadata-item mb-3">
+                            <label class="fw-bold">Duration</label>
+                            <div class="d-flex align-items-center">
+                                <div class="form-control bg-dark text-light" id="video-duration"></div>
+                                <button class="btn btn-outline-primary ms-2 copy-btn" data-copy="video-duration">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="metadata-item mb-3">
+                            <label class="fw-bold">Tags</label>
+                            <div id="video-tags" class="mt-2"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const metadataForm = document.getElementById('metadata-form');
+    const metadataResult = document.getElementById('metadata-result');
+    
+    metadataForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const url = document.getElementById('youtube-url').value;
+        
+        try {
+            const response = await fetch('/get_metadata', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ url })
+            });
+            
+            const data = await response.json();
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            document.getElementById('video-title').textContent = data.title;
+            document.getElementById('video-description').textContent = data.description;
+            document.getElementById('video-channel').textContent = data.channel;
+            document.getElementById('video-duration').textContent = data.duration;
+            
+            const tagsContainer = document.getElementById('video-tags');
+            tagsContainer.innerHTML = '';
+            if (data.tags && data.tags.length > 0) {
+                data.tags.forEach(tag => {
+                    const tagDiv = document.createElement('div');
+                    tagDiv.className = 'd-flex align-items-center mb-2';
+                    tagDiv.innerHTML = `
+                        <div class="form-control bg-dark text-light">${tag}</div>
+                        <button class="btn btn-outline-primary ms-2 copy-btn" data-copy-text="${tag}">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    `;
+                    tagsContainer.appendChild(tagDiv);
+                });
+            }
+            
+            metadataResult.classList.remove('d-none');
+        } catch (error) {
+            alert('Error: ' + error.message);
+        }
+    });
+    
+    document.addEventListener('click', async (e) => {
+        if (e.target.closest('.copy-btn')) {
+            const btn = e.target.closest('.copy-btn');
+            const text = btn.dataset.copyText || 
+                        document.getElementById(btn.dataset.copy).textContent;
+            
+            await navigator.clipboard.writeText(text);
+            
+            // Visual feedback
+            const icon = btn.querySelector('i');
+            icon.className = 'fas fa-check';
+            setTimeout(() => {
+                icon.className = 'fas fa-copy';
+            }, 1000);
+        }
+    });
+});
+</script>
+{% endblock %}

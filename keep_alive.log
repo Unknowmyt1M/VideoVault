@@ -1,0 +1,17 @@
+2025-04-04 02:53:35,477 - keep_alive - INFO - Starting keep alive service
+2025-04-04 02:53:35,477 - keep_alive - INFO - Setting up Replit-specific keep alive
+2025-04-04 02:53:35,821 - keep_alive - WARNING - Could not import Flask app, skipping ping endpoint setup
+2025-04-04 02:53:35,821 - keep_alive - INFO - Pinging application at http://localhost:5000
+2025-04-04 02:53:35,823 - keep_alive - INFO - Application monitoring started
+2025-04-04 02:53:35,824 - keep_alive - ERROR - Failed to ping application: HTTPConnectionPool(host='localhost', port=5000): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f1fe4090710>: Failed to establish a new connection: [Errno 111] Connection refused'))
+2025-04-04 02:53:35,824 - keep_alive - WARNING - Failed ping count: 1/3
+2025-04-04 02:58:35,824 - keep_alive - INFO - Pinging application at http://localhost:5000
+2025-04-04 02:58:35,826 - keep_alive - ERROR - Failed to ping application: HTTPConnectionPool(host='localhost', port=5000): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f1fe3cc7110>: Failed to establish a new connection: [Errno 111] Connection refused'))
+2025-04-04 02:58:35,826 - keep_alive - WARNING - Failed ping count: 2/3
+2025-04-04 03:03:35,827 - keep_alive - INFO - Pinging application at http://localhost:5000
+2025-04-04 03:03:35,829 - keep_alive - ERROR - Failed to ping application: HTTPConnectionPool(host='localhost', port=5000): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f1fe3cc7310>: Failed to establish a new connection: [Errno 111] Connection refused'))
+2025-04-04 03:03:35,829 - keep_alive - WARNING - Failed ping count: 3/3
+2025-04-04 03:03:35,829 - keep_alive - WARNING - Threshold reached, attempting to restart
+2025-04-04 03:03:35,829 - keep_alive - INFO - Attempting to restart application
+2025-04-04 03:03:35,829 - keep_alive - INFO - Restarting Replit application using kill 1 command
+2025-04-04 03:03:35,831 - keep_alive - INFO - Application restart attempt 1 completed

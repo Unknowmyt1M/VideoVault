@@ -1,0 +1,103 @@
+# YouTube Video Downloader & Manager
+
+A web application that automates YouTube video downloading, management, and sharing with advanced AI-powered features for content creators and media enthusiasts.
+
+## Features
+
+- Download videos from YouTube
+- Extract metadata from videos
+- Upload videos to Google Drive
+- Upload videos to YouTube with metadata
+- User authentication with Google OAuth
+- Download history tracking
+- Responsive web interface
+
+## Prerequisites
+
+- Python 3.11 or higher
+- PostgreSQL (optional, can use SQLite for development)
+- A Google Cloud Platform account with OAuth 2.0 credentials and API access
+
+## Local Development Setup
+
+1. Clone the repository
+2. Create and activate a virtual environment
+3. Install dependencies from requirements_deploy.txt
+4. Create a `.env` file based on the example
+5. Edit the `.env` file and add your Google OAuth credentials and other configuration options
+6. Run the application: `python main.py`
+7. Access the application at http://localhost:5000
+
+## Deployment
+
+### Heroku
+
+1. Create a Heroku account and install the Heroku CLI
+2. Login to Heroku and create a new app
+3. Set environment variables in the Heroku dashboard
+4. Deploy to Heroku with Git
+
+### Render
+
+1. Create a new Web Service on Render
+2. Connect to your repository
+3. Set the build command to install from requirements_deploy.txt
+4. Set the start command to `gunicorn main:app`
+5. Add environment variables in the Render dashboard
+
+### Local Server Deployment
+
+1. Install dependencies from requirements_deploy.txt
+2. Create and configure `.env` file with appropriate settings
+3. Run with Gunicorn for production: `gunicorn --bind 0.0.0.0:5000 main:app`
+
+## Configuration
+
+- `SESSION_SECRET`: Secret key for session encryption
+- `GOOGLE_OAUTH_CLIENT_ID`: Google OAuth client ID
+- `GOOGLE_OAUTH_CLIENT_SECRET`: Google OAuth client secret
+- `GOOGLE_REDIRECT_URI`: Callback URL for OAuth (must match what's configured in Google Cloud Console)
+- `FLASK_ENV`: Environment (development/production)
+- `DEBUG`: Enable debug mode (True/False)
+- `PORT`: Port number for the application
+- `DATABASE_URL`: Database connection string (optional)
+- `ALLOW_INSECURE_OAUTH`: Set to "True" for local development without HTTPS (never use in production)
+
+## Google Cloud Setup
+
+### Setting Up Google OAuth 2.0
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select an existing one
+3. Navigate to "APIs & Services" > "OAuth consent screen"
+   - Choose "External" user type if you want anyone to be able to use your app
+   - Fill in the required fields (App name, User support email, Developer contact information)
+   - Add the necessary scopes (at minimum, you need `.../auth/userinfo.email` and `.../auth/userinfo.profile`)
+   - Add any test users if in testing mode
+4. Go to "APIs & Services" > "Credentials"
+5. Click "Create Credentials" > "OAuth client ID"
+   - Choose "Web application" as the application type
+   - Add a name for your OAuth client
+   - Add authorized JavaScript origins (e.g., `https://yourdomain.com` or `http://localhost:5000` for local testing)
+   - Add authorized redirect URIs:
+     - For Replit: `https://your-replit-domain.replit.app/google_login/callback`
+     - For local testing: `http://localhost:5000/google_login/callback` 
+     - For your custom domain: `https://yourdomain.com/google_login/callback`
+6. Click "Create" and note your Client ID and Client Secret
+7. Add these credentials to your `.env` file:
+   ```
+   GOOGLE_OAUTH_CLIENT_ID=your_client_id_here
+   GOOGLE_OAUTH_CLIENT_SECRET=your_client_secret_here
+   GOOGLE_REDIRECT_URI=https://yourdomain.com/google_login/callback
+   ```
+
+### Important Notes for OAuth Configuration
+
+- For local development, set `ALLOW_INSECURE_OAUTH=True` in your `.env` file, but **never** use this in production
+- The `GOOGLE_REDIRECT_URI` must **exactly** match one of the URIs registered in the Google Cloud Console
+- You can register multiple redirect URIs in Google Cloud Console for different environments (development, staging, production)
+- When moving between environments, simply update the `GOOGLE_REDIRECT_URI` in your `.env` file to match your current environment
+
+## License
+
+[MIT License](LICENSE)

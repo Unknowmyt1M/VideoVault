@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- YouTube Play Button -->
+  <rect x="0" y="8" width="28" height="20" rx="5" ry="5" fill="#FF0000" />
+  <polygon points="11,14 11,22 19,18" fill="white" />
+  
+  <!-- Arrow -->
+  <path d="M30,18 L34,18" stroke="#212121" stroke-width="2" />
+  <polygon points="33,15 33,21 37,18" fill="#212121" />
+  
+  <!-- Google Drive Icon -->
+  <path d="M47,28 L56,28 L50,18 L41,18 Z" fill="#4285F4" />
+  <path d="M41,18 L50,18 L47,13 L38,13 Z" fill="#FBBC05" />
+  <path d="M38,13 L47,13 L41,23 L32,23 Z" fill="#EA4335" />
+  <path d="M32,23 L41,23 L47,28 L38,28 Z" fill="#34A853" />
+</svg>

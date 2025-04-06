@@ -1,0 +1,16 @@
+email-validator>=2.2.0
+flask>=3.1.0
+flask-login>=0.6.3
+flask-sqlalchemy>=3.1.1
+google-api-python-client>=2.164.0
+google-auth>=2.38.0
+google-auth-oauthlib>=1.2.1
+gunicorn>=23.0.0
+psycopg2-binary>=2.9.10
+python-dotenv>=1.0.1
+requests>=2.32.3
+sqlalchemy>=2.0.39
+yt-dlp>=2025.2.19
+pytube>=15.0.0
+oauthlib>=3.2.2
+youtube-dl>=2021.12.17
