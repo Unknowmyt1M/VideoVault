@@ -44,6 +44,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" id="youtubeUploadBtn" class="btn btn-primary" style="display:none;">Upload to YouTube</button>
             </div>
         </div>
     </div>
@@ -96,13 +97,27 @@
             // Determine status
             let status = '';
             let statusClass = '';
+            let statusInfo = [];
+            
+            if (video.download_success) {
+                statusInfo.push('Downloaded');
+            }
             
             if (video.uploaded_to_drive) {
-                status = 'Uploaded to Drive';
+                statusInfo.push('Drive');
+            }
+            
+            if (video.telegram_backup) {
+                statusInfo.push('Telegram');
+            }
+            
+            if (video.uploaded_to_youtube) {
+                statusInfo.push('YouTube');
+            }
+            
+            if (statusInfo.length > 0) {
+                status = statusInfo.join(', ');
                 statusClass = 'text-success';
-            } else if (video.download_success) {
-                status = 'Downloaded';
-                statusClass = 'text-primary';
             } else {
                 status = 'Failed';
                 statusClass = 'text-danger';
@@ -134,6 +149,17 @@
                     const video = data.videos.find(v => v.id === videoId);
                     if (video) {
                         displayVideoDetails(video);
+                        
+                        // Setup YouTube upload button if eligible
+                        const uploadBtn = document.getElementById('youtubeUploadBtn');
+                        if (video.download_success && !video.uploaded_to_youtube) {
+                            uploadBtn.style.display = 'block';
+                            uploadBtn.onclick = function() {
+                                window.location.href = `/upload?video_id=${video.id}`;
+                            };
+                        } else {
+                            uploadBtn.style.display = 'none';
+                        }
                     }
                 }
             });
@@ -172,9 +198,22 @@
                 <div class="col-md-6">
                     <p><strong>Download Success:</strong> ${video.download_success ? 'Yes' : 'No'}</p>
                     <p><strong>Uploaded to Drive:</strong> ${video.uploaded_to_drive ? 'Yes' : 'No'}</p>
+                    <p><strong>Telegram Backup:</strong> ${video.telegram_backup ? 'Yes' : 'No'}</p>
+                    <p><strong>Uploaded to YouTube:</strong> ${video.uploaded_to_youtube ? 'Yes' : 'No'}</p>
                     ${video.drive_file_id ? `<p><strong>Drive File ID:</strong> ${video.drive_file_id}</p>` : ''}
+                    ${video.youtube_upload_id ? `<p><strong>YouTube ID:</strong> <a href="https://youtu.be/${video.youtube_upload_id}" target="_blank">${video.youtube_upload_id}</a></p>` : ''}
                 </div>
             </div>
+            
+            ${video.telegram_backup ? `
+            <div class="row mt-3">
+                <div class="col-12">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> This video has a Telegram backup. If the local file is missing, it can be automatically retrieved from Telegram when needed for YouTube uploads.
+                    </div>
+                </div>
+            </div>
+            ` : ''}
         `;
         
         modalContent.innerHTML = content;

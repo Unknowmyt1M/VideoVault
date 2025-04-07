@@ -10,6 +10,7 @@ from urllib.parse import urlparse, parse_qs
 # Import utilities and database
 from json_database import JSONDatabase
 from utils import format_duration, is_valid_youtube_url, safe_filename, generate_temp_filename
+from telegram_utils import upload_file_sync, download_file_sync
 
 from flask import Flask, render_template, request, jsonify, flash, session, redirect, send_file
 # Handle YouTube downloads without cookies for now
@@ -232,12 +233,25 @@ def register_routes(app):
     def get_video_info():
         """Get video information from YouTube URL"""
         try:
+            # Log the request
+            app.logger.info("Fetch video info request received")
+            
             data = request.get_json()
+            if not data:
+                app.logger.error("No JSON data received in get_video_info")
+                return jsonify({'error': 'No data provided'}), 400
+                
             url = data.get('url', '')
+            app.logger.info(f"Processing URL: {url[:50]}{'...' if len(url) > 50 else ''}")
+
+            if not url:
+                app.logger.error("Empty URL provided")
+                return jsonify({'error': 'URL is required'}), 400
 
             # Validate YouTube URL
             parsed_url = urlparse(url)
             if 'youtube.com' not in parsed_url.netloc and 'youtu.be' not in parsed_url.netloc:
+                app.logger.error(f"Invalid YouTube URL: {url[:50]}")
                 return jsonify({'error': 'Invalid YouTube URL'}), 400
 
             ydl_opts = {
@@ -266,7 +280,7 @@ def register_routes(app):
                 'uploader': info.get('uploader', 'Unknown uploader'),
             })
         except Exception as e:
-            logger.error(f"Error getting video info: {e}")
+            app.logger.error(f"Error getting video info: {e}")
             return jsonify({'error': str(e)}), 500
 
     @app.route('/download', methods=['POST'])
@@ -276,6 +290,8 @@ def register_routes(app):
         logger.info(f"Download data received: {data}")
 
         url = data.get('url', '')
+        # Get selected quality (max height in pixels)
+        max_height = data.get('quality', 1080)  # Default to 1080p if not specified
 
         # Create a unique filename
         timestamp = int(time.time())
@@ -287,9 +303,9 @@ def register_routes(app):
         try:
             subprocess.run(['pip', 'list'], capture_output=True, text=True)
 
-            # Try best format under 720p with increased file size limit
-            cmd = f"yt-dlp -f 'bv*[height<=720]+ba/b[height<=720] / wv*+ba/w' --no-check-certificate --no-warnings --no-cache-dir --no-playlist --max-filesize 1536M -o '{temp_file_mp4}' '{url}'"
-            logger.info(f"Running direct low-quality download: {cmd}")
+            # Try best format with selected resolution with increased file size limit
+            cmd = f"yt-dlp -f 'bv*[height<={max_height}]+ba/b[height<={max_height}] / wv*+ba/w' --no-check-certificate --no-warnings --no-cache-dir --no-playlist --max-filesize 5120M --buffer-size 8M --concurrent-fragments 16 -o '{temp_file_mp4}' '{url}'"
+            logger.info(f"Running selected quality (up to {max_height}p) download: {cmd}")
             process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             try:
                 stdout, stderr = process.communicate(timeout=300)  # 5 minute timeout for downloads
@@ -297,23 +313,23 @@ def register_routes(app):
                     # First attempt failed, try with generic method
                     logger.warning(f"Low quality download failed: {stderr.decode()}")
                     
-                    # Try generic download without YouTube extractor
-                    fallback_cmd = f"yt-dlp --force-generic-extractor --no-check-certificate --no-cache-dir --no-playlist --max-filesize 50M -o '{temp_file_mp4}' '{url}'"
-                    logger.info(f"Running generic download: {fallback_cmd}")
+                    # Try generic download without YouTube extractor, but still aim for highest quality
+                    fallback_cmd = f"yt-dlp --force-generic-extractor --no-check-certificate --no-cache-dir --no-playlist --max-filesize 5120M --buffer-size 8M --concurrent-fragments 12 -o '{temp_file_mp4}' '{url}'"
+                    logger.info(f"Running generic download with high quality: {fallback_cmd}")
                     
                     fallback_process = subprocess.Popen(fallback_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    fallback_stdout, fallback_stderr = fallback_process.communicate(timeout=120)
+                    fallback_stdout, fallback_stderr = fallback_process.communicate(timeout=600)  # Increased timeout for larger files
                     
-                    # If still failed, try with curl directly
+                    # If still failed, try with youtube-dl (another extractor)
                     if fallback_process.returncode != 0:
                         logger.warning(f"Generic download failed: {fallback_stderr.decode()}")
                         
-                        # Use youtube-dl as final attempt
-                        last_cmd = f"youtube-dl -f '18/17/36/best[height<=360]' --no-check-certificate --no-warnings --no-playlist -o '{temp_file_mp4}' '{url}'"
-                        logger.info(f"Running youtube-dl attempt: {last_cmd}")
+                        # Use youtube-dl as final attempt with best quality up to 1080p
+                        last_cmd = f"youtube-dl -f 'bestvideo[height<=1080]+bestaudio/best' --no-check-certificate --no-warnings --no-playlist -o '{temp_file_mp4}' '{url}'"
+                        logger.info(f"Running youtube-dl attempt with high quality: {last_cmd}")
                         
                         last_process = subprocess.Popen(last_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                        last_stdout, last_stderr = last_process.communicate(timeout=120)
+                        last_stdout, last_stderr = last_process.communicate(timeout=600)  # Increased timeout for larger files
                         
                         if last_process.returncode != 0:
                             raise Exception(f"All download methods failed: {last_stderr.decode()}")
@@ -389,15 +405,45 @@ def register_routes(app):
         except Exception as e:
             logger.error(f"Download error: {e}")
 
-            # Last attempt - basic pytube
+            # Last attempt - pytube with adaptive streams for high quality
             try:
-                logger.info("Trying basic pytube...")
+                logger.info("Trying pytube with adaptive streams for highest resolution...")
                 from pytube import YouTube
                 yt = YouTube(url)
-                highest_res_stream = yt.streams.get_highest_resolution()
-                if highest_res_stream:
-                    download_path = highest_res_stream.download(output_path=temp_dir, filename=f"yt_video_{timestamp}.mp4")
-                    logger.info(f"Downloaded with pytube: {download_path}")
+                
+                # Try to get the highest resolution available
+                # First look for adaptive streams (separate video and audio)
+                video_stream = None
+                
+                # Try for selected resolution based on max_height
+                resolution_options = ["2160p", "1440p", "1080p", "720p", "480p", "360p", "240p", "144p"]
+                selected_resolution = None
+                
+                # Find the best resolution that's less than or equal to max_height
+                for res in resolution_options:
+                    height = int(res[:-1])  # Remove the 'p' and convert to int
+                    if height <= int(max_height):
+                        if yt.streams.filter(res=res, adaptive=True).first():
+                            selected_resolution = res
+                            video_stream = yt.streams.filter(res=res, adaptive=True).first()
+                            logger.info(f"Found {res} video stream (adaptive)")
+                            break
+                
+                # If no adaptive stream found at the desired resolution, try progressive
+                if not video_stream and selected_resolution:
+                    video_stream = yt.streams.filter(res=selected_resolution).first()
+                    if video_stream:
+                        logger.info(f"Found {selected_resolution} video stream (progressive)")
+                
+                # If still no stream found, try highest available resolution up to the max height
+                if not video_stream:
+                    # Fallback to highest progressive stream (has both video and audio)
+                    video_stream = yt.streams.get_highest_resolution()
+                    logger.info(f"Using highest progressive stream: {video_stream.resolution}")
+                
+                if video_stream:
+                    download_path = video_stream.download(output_path=temp_dir, filename=f"yt_video_{timestamp}.mp4")
+                    logger.info(f"Downloaded with pytube: {download_path} at resolution {video_stream.resolution}")
 
                     if os.path.exists(download_path):
                         video_info = {
@@ -410,7 +456,7 @@ def register_routes(app):
                         }
                         return process_downloaded_video(url, video_info)
             except Exception as pytube_error:
-                logger.error(f"Basic pytube error: {pytube_error}")
+                logger.error(f"Pytube high-quality download error: {pytube_error}")
 
         # If all methods fail
         return jsonify({'error': 'All download methods failed'}), 500
@@ -438,12 +484,46 @@ def register_routes(app):
                 'drive_folder_id': None,
                 'uploaded_to_youtube': False,
                 'youtube_upload_id': None,
+                'telegram_backup': False,
+                'telegram_metadata': None,
                 'user_id': current_user.id if hasattr(current_user, 'id') and not current_user.is_anonymous else None
             }
 
             # Create video record in JSON database
             video = db.create_video(video_data)
             logger.info(f"Video record created with ID: {video['id']}")
+            
+            # Auto-backup to Telegram in background thread if token is configured
+            telegram_bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+            telegram_channel_id = os.environ.get('TELEGRAM_CHANNEL_ID')
+            
+            if telegram_bot_token and telegram_channel_id:
+                try:
+                    # Start a background thread to Upload To Cloud
+                    def backup_to_telegram():
+                        try:
+                            logger.info(f"Starting background Upload To Cloud for {filename}")
+                            # Upload To Cloud
+                            chunks_metadata = _upload_to_telegram(filename, video_info['title'] + '.mp4')
+                            
+                            # Update video record with Telegram metadata
+                            updated_data = {
+                                'telegram_backup': True,
+                                'telegram_metadata': json.dumps(chunks_metadata)
+                            }
+                            db.update_video(video['id'], updated_data)
+                            logger.info(f"Successfully backed up video {video['id']} to Telegram")
+                        except Exception as e:
+                            logger.error(f"Error in Telegram backup thread: {e}")
+                    
+                    # Start backup in background
+                    import threading
+                    threading.Thread(target=backup_to_telegram).start()
+                    logger.info(f"Background Telegram backup started for video {video['id']}")
+                except Exception as e:
+                    logger.error(f"Failed to start Telegram backup thread: {e}")
+            else:
+                logger.info("Telegram backup skipped - credentials not configured")
 
             # Add video ID to response for later reference
             response_data = {
@@ -463,16 +543,50 @@ def register_routes(app):
     def upload_to_drive():
         """Upload video to Google Drive"""
         try:
+            app.logger.info("Upload to Drive request received")
             data = request.get_json()
+            app.logger.info(f"Upload to Drive data: {data}")
+            
             filename = data.get('filename', '')
             folder_id = data.get('folder_id', None)
             video_id = data.get('video_id', None)
-
+            use_telegram_backup = data.get('use_telegram_backup', True)  # Default to True
+            
+            # Check if we have a DB entry for this video
+            retrieved_from_telegram = False
+            if video_id and use_telegram_backup:
+                app.logger.info(f"Checking for Telegram backup for video {video_id}")
+                video = db.get_video_by_id(int(video_id))
+                if video and video.get('telegram_backup') and video.get('telegram_metadata'):
+                    app.logger.info(f"Found Telegram backup, attempting to download")
+                    try:
+                        # Get metadata from JSON string
+                        telegram_metadata = json.loads(video.get('telegram_metadata'))
+                        chunk_file_ids = telegram_metadata.get('chunk_file_ids', [])
+                        
+                        if chunk_file_ids:
+                            # Create a temporary file to download the video
+                            download_filename = f"drive_upload_{video.get('youtube_id')}_{int(time.time())}.mp4"
+                            temp_output_path = os.path.join(temp_dir, download_filename)
+                            
+                            # Download from Telegram
+                            result_path = _download_from_telegram(chunk_file_ids, temp_output_path)
+                            if result_path and os.path.exists(result_path):
+                                filename = result_path  # Use the Telegram downloaded file
+                                retrieved_from_telegram = True
+                                app.logger.info(f"Successfully retrieved from Telegram for Drive upload: {result_path}")
+                    except Exception as e:
+                        app.logger.error(f"Error retrieving from Telegram for Drive upload: {e}")
+                        # Continue with original file if Telegram retrieval fails
+            
             if not os.path.exists(filename):
-                return jsonify({'error': 'File not found'}), 404
+                app.logger.error(f"File not found at: {filename}")
+                return jsonify({'error': f'File not found at: {filename}'}), 404
 
+            app.logger.info(f"Authenticating with Google Drive")
             drive_service = get_authenticated_service()
             if not drive_service:
+                app.logger.error("Not authenticated with Google Drive")
                 return jsonify({'error': 'Not authenticated with Google Drive'}), 401
 
             # Create file metadata
@@ -483,8 +597,8 @@ def register_routes(app):
             if folder_id:
                 file_metadata['parents'] = [folder_id]
 
-            # Upload file with larger chunk size for faster uploads (50MB)
-            chunk_size = 52428800  # 50MB chunks (default is 1MB)
+            # Upload file with large chunk size for faster uploads (100MB)
+            chunk_size = 104857600  # 100MB chunks (default is 1MB)
             media = MediaFileUpload(
                 filename, 
                 resumable=True,
@@ -547,32 +661,66 @@ def register_routes(app):
     def upload_to_yt():
         """Upload video to YouTube with original metadata"""
         try:
+            app.logger.info("Upload to YouTube request received")
+            
             # Check if user is logged in 
             if not hasattr(current_user, 'id') or current_user.is_anonymous:
+                app.logger.error("User not logged in for YouTube upload")
                 return jsonify({'error': 'You must be logged in to upload to YouTube'}), 401
                 
             # Extract request data
             request_data = request.get_json()
             if not request_data:
+                app.logger.error("Invalid request data for YouTube upload")
                 return jsonify({'error': 'Invalid request data'}), 400
+            
+            app.logger.info(f"YouTube upload data: {request_data}")
                 
             filename = request_data.get('filename')
             video_id = request_data.get('video_id')
             privacy_status = request_data.get('privacy_status', 'private')
+            use_telegram_backup = request_data.get('use_telegram_backup', True)  # Default to True
             
             if not filename or not video_id:
+                app.logger.error("Missing required parameters for YouTube upload")
                 return jsonify({'error': 'Missing required parameters (filename or video_id)'}), 400
                 
             # Get video information from database
             video = db.get_video_by_id(int(video_id))
             if not video:
+                app.logger.error(f"Video ID {video_id} not found in database")
                 return jsonify({'error': 'Video not found in database'}), 404
                 
+            # Check for Telegram backup if enabled
+            retrieved_from_telegram = False
+            if use_telegram_backup and video.get('telegram_backup') and video.get('telegram_metadata'):
+                app.logger.info(f"Found Telegram backup for YouTube upload, video ID: {video_id}")
+                try:
+                    # Get metadata from JSON string
+                    telegram_metadata = json.loads(video.get('telegram_metadata'))
+                    chunk_file_ids = telegram_metadata.get('chunk_file_ids', [])
+                    
+                    if chunk_file_ids:
+                        # Create a temporary file to download the video
+                        download_filename = f"yt_upload_{video.get('youtube_id')}_{int(time.time())}.mp4"
+                        temp_output_path = os.path.join(temp_dir, download_filename)
+                        
+                        # Download from Telegram
+                        app.logger.info(f"Downloading from Telegram for YouTube upload: {len(chunk_file_ids)} chunks")
+                        result_path = _download_from_telegram(chunk_file_ids, temp_output_path)
+                        if result_path and os.path.exists(result_path):
+                            filename = result_path  # Use the downloaded file
+                            retrieved_from_telegram = True
+                            app.logger.info(f"Successfully retrieved from Telegram for YouTube upload: {result_path}")
+                except Exception as e:
+                    app.logger.error(f"Error retrieving from Telegram for YouTube upload: {e}")
+                    # Continue with original file if Telegram retrieval fails
+            
             # Verify the file exists
             file_path = filename
             if not os.path.exists(file_path):
-                logger.error(f"File not found: {file_path}")
-                return jsonify({'error': 'Video file not found'}), 404
+                app.logger.error(f"File not found at: {file_path}")
+                return jsonify({'error': f'Video file not found at: {file_path}'}), 404
                 
             # Get an authenticated YouTube service
             try:
@@ -712,9 +860,9 @@ def register_routes(app):
                     # In production, this would use resumable upload
                     # For simplicity, we'll use a simpler approach for now
                     
-                    # Create MediaFileUpload object for the video file with higher chunk size (50MB)
-                    # for faster uploads
-                    chunk_size = 52428800  # 50MB chunks instead of default 1MB
+                    # Create MediaFileUpload object for the video file with higher chunk size (100MB)
+                    # for much faster uploads
+                    chunk_size = 104857600  # 100MB chunks instead of default 1MB
                     media = MediaFileUpload(
                         file_path,
                         mimetype='video/mp4',
@@ -805,8 +953,9 @@ def register_routes(app):
             tags = request_data.get('tags', '').split(',') if request_data.get('tags') else []
             privacy_status = request_data.get('privacy_status', 'private')
             
-            # New option to use original metadata
+            # New options
             use_original_metadata = request_data.get('use_original_metadata', False)
+            use_telegram_backup = request_data.get('use_telegram_backup', False)
             
             if not filename or not video_id:
                 return jsonify({'error': 'Missing required parameters (filename or video_id)'}), 400
@@ -816,11 +965,36 @@ def register_routes(app):
             if not video:
                 return jsonify({'error': 'Video not found in database'}), 404
                 
-            # Verify the file exists
+            # Verify the file exists locally first
             file_path = filename
-            if not os.path.exists(file_path):
-                logger.error(f"File not found: {file_path}")
-                return jsonify({'error': 'Video file not found'}), 404
+            file_exists = os.path.exists(file_path)
+            
+            # If file doesn't exist locally but video has Telegram backup, try to download from Telegram
+            if not file_exists and video.get('telegram_backup') and video.get('telegram_metadata'):
+                try:
+                    logger.info(f"File not found locally, attempting to retrieve from Telegram: {filename}")
+                    # Parse telegram metadata
+                    telegram_metadata = json.loads(video.get('telegram_metadata'))
+                    chunk_file_ids = telegram_metadata.get('chunk_file_ids', [])
+                    
+                    if chunk_file_ids:
+                        # Create temporary path for downloading
+                        restore_path = os.path.join(temp_dir, safe_filename(video.get('title', 'video') + '.mp4'))
+                        logger.info(f"Downloading video from Telegram to {restore_path}")
+                        
+                        # Download file from Telegram
+                        file_path = _download_from_telegram(chunk_file_ids, restore_path)
+                        if os.path.exists(file_path):
+                            logger.info(f"Successfully retrieved video from Telegram backup: {file_path}")
+                            file_exists = True
+                except Exception as e:
+                    logger.error(f"Error retrieving file from Telegram: {e}")
+                    # Continue execution - we'll handle missing file case next
+            
+            # If file still doesn't exist after Telegram attempt, return error
+            if not file_exists:
+                logger.error(f"File not found (even after Telegram check): {file_path}")
+                return jsonify({'error': 'Video file not found locally or in Telegram backup'}), 404
                 
             # Get an authenticated YouTube service
             try:
@@ -931,9 +1105,9 @@ def register_routes(app):
                 logger.info(f"Starting YouTube upload with custom metadata for file: {file_path}")
                 
                 try:
-                    # Create MediaFileUpload object for the video file with higher chunk size (50MB)
-                    # for faster uploads
-                    chunk_size = 52428800  # 50MB chunks instead of default 1MB
+                    # Create MediaFileUpload object for the video file with higher chunk size (100MB)
+                    # for much faster uploads
+                    chunk_size = 104857600  # 100MB chunks instead of default 1MB
                     media = MediaFileUpload(
                         file_path, 
                         mimetype='video/mp4',
@@ -1018,19 +1192,63 @@ def register_routes(app):
             logger.error(f"Error in custom YouTube upload: {e}")
             return jsonify({'error': f"YouTube upload error: {str(e)}"}), 500
 
-    @app.route('/download/<filename>', methods=['GET'])
+    @app.route('/download/<path:filename>', methods=['GET'])
     def download_file(filename):
         """Download a file to user's device"""
         try:
-            # Sanitize filename
-            safe_name = safe_filename(filename)
+            app.logger.info(f"Download file request for: {filename}")
             
-            # Find the file
-            downloads_folder = temp_dir
-            file_path = os.path.join(downloads_folder, safe_name)
+            # Check if we're coming from a video ID instead of a file path
+            video_id = request.args.get('video_id')
+            if video_id:
+                app.logger.info(f"Looking up video with ID: {video_id}")
+                video = db.get_video_by_id(int(video_id))
+                if video:
+                    # Check if we have a Telegram backup first
+                    if video.get('telegram_backup') and video.get('telegram_metadata'):
+                        app.logger.info(f"Found Telegram backup for video {video_id}")
+                        
+                        # Create a temporary file to download the video
+                        download_filename = f"download_{video.get('youtube_id')}_{int(time.time())}.mp4"
+                        temp_output_path = os.path.join(temp_dir, download_filename)
+                        
+                        try:
+                            # Get metadata from JSON string
+                            telegram_metadata = json.loads(video.get('telegram_metadata'))
+                            chunk_file_ids = telegram_metadata.get('chunk_file_ids', [])
+                            
+                            if chunk_file_ids:
+                                app.logger.info(f"Downloading from Telegram: {len(chunk_file_ids)} chunks")
+                                # Download from Telegram
+                                result_path = _download_from_telegram(chunk_file_ids, temp_output_path)
+                                if result_path and os.path.exists(result_path):
+                                    filename = result_path  # Use the Telegram downloaded file
+                                    app.logger.info(f"Successfully downloaded from Telegram: {result_path}")
+                                else:
+                                    app.logger.warning(f"Telegram download failed, falling back to original file")
+                        except Exception as e:
+                            app.logger.error(f"Error downloading from Telegram: {e}")
+                    
+                    # If no Telegram backup or it failed, use original file path
+                    if not os.path.exists(filename):
+                        filename = video.get('filename', filename)
+                        app.logger.info(f"Using original filename: {filename}")
             
+            # Sanitize filename (for direct file path access)
+            safe_name = safe_filename(os.path.basename(filename))
+            file_path = filename
+            
+            # If file_path doesn't exist directly, check in temp_dir
             if not os.path.exists(file_path):
-                return "File not found", 404
+                downloads_folder = temp_dir
+                alternative_path = os.path.join(downloads_folder, safe_name)
+                if os.path.exists(alternative_path):
+                    file_path = alternative_path
+                else:
+                    app.logger.error(f"File not found at {file_path} or {alternative_path}")
+                    return jsonify({"error": "File not found"}), 404
+            
+            app.logger.info(f"Returning file: {file_path}")
                 
             # Set correct content type
             if file_path.endswith('.mp4'):
@@ -1047,8 +1265,8 @@ def register_routes(app):
                 mimetype=content_type
             )
         except Exception as e:
-            logger.error(f"Error downloading file: {e}")
-            return str(e), 500
+            app.logger.error(f"Error downloading file: {e}")
+            return jsonify({"error": str(e)}), 500
 
     @app.route('/get_history', methods=['GET'])
     def get_history():
@@ -1146,6 +1364,166 @@ def register_routes(app):
         except Exception as e:
             logger.error(f"Error exporting history: {e}")
             return jsonify({'error': str(e)}), 500
+    
+    # Internal utility function for uploading to Telegram
+    def _upload_to_telegram(file_path, original_filename=None, custom_caption=None):
+        """Upload file to Telegram storage in chunks (internal utility)"""
+        try:
+            # Get file size for validation
+            file_size = os.path.getsize(file_path)
+            filename = original_filename or os.path.basename(file_path)
+            logger.info(f"Uploading file to Telegram storage: {filename}, Size: {file_size} bytes")
+            
+            # Get user info for caption if not provided
+            if not custom_caption and hasattr(current_user, 'id') and not current_user.is_anonymous:
+                user_email = current_user.email if hasattr(current_user, 'email') else "Unknown"
+                user_name = current_user.username if hasattr(current_user, 'username') else "Unknown User"
+                
+                # Format date and time
+                upload_date = datetime.now().strftime("%d %B, %Y")
+                upload_time = datetime.now().strftime("%H:%M")
+                
+                # Create caption with requested format
+                custom_caption = f"Title: {filename}\nUploaded by: {user_name} ({user_email})\nUpload time: uploaded on {upload_date} at {upload_time}"
+            
+            # Upload To Cloud in chunks with caption
+            chunks_metadata = upload_file_sync(file_path, custom_caption)
+            
+            # Store metadata in database for current user
+            if hasattr(current_user, 'id') and not current_user.is_anonymous:
+                # Create new record for this upload
+                file_data = {
+                    'user_id': current_user.id,
+                    'original_filename': filename,
+                    'file_size': file_size,
+                    'telegram_metadata': json.dumps(chunks_metadata),
+                    'upload_date': datetime.now().isoformat(),
+                    'chunks': chunks_metadata.get('chunks', 0)
+                }
+                
+                # Store in session for now
+                if 'telegram_files' not in session:
+                    session['telegram_files'] = []
+                
+                session['telegram_files'].append(file_data)
+            
+            logger.info(f"Successfully uploaded to Telegram: {filename} ({chunks_metadata.get('chunks', 0)} chunks)")
+            return chunks_metadata
+            
+        except Exception as e:
+            logger.error(f"Error uploading to Telegram: {e}")
+            raise
+    
+    # Internal utility function for downloading from Telegram
+    def _download_from_telegram(chunk_file_ids, output_path):
+        """Download file from Telegram storage by reassembling chunks (internal utility)"""
+        try:
+            if not chunk_file_ids:
+                raise ValueError("No chunk file IDs provided")
+                
+            # Download and reassemble chunks
+            result_path = download_file_sync(chunk_file_ids, output_path)
+            logger.info(f"Successfully downloaded file from Telegram to {result_path}")
+            return result_path
+                
+        except Exception as e:
+            logger.error(f"Error downloading from Telegram: {e}")
+            raise
+    
+    @app.route('/cloud_storage')
+    def cloud_storage_page():
+        """Render the Telegram storage page for large file handling"""
+        return render_template('cloud_storage.html')
+    
+    @app.route('/upload_to_telegram', methods=['POST'])
+    @login_required
+    def upload_to_telegram():
+        """Upload file to Telegram storage in chunks"""
+        try:
+            # Check if file was uploaded
+            if 'file' not in request.files:
+                return jsonify({'error': 'No file uploaded'}), 400
+                
+            uploaded_file = request.files['file']
+            if uploaded_file.filename == '':
+                return jsonify({'error': 'Empty filename'}), 400
+                
+            # Save uploaded file to temporary location
+            temp_file_path = os.path.join(temp_dir, safe_filename(uploaded_file.filename))
+            uploaded_file.save(temp_file_path)
+            
+            # Get file size for validation
+            file_size = os.path.getsize(temp_file_path)
+            logger.info(f"File received for Telegram storage: {uploaded_file.filename}, Size: {file_size} bytes")
+            
+            # Upload To Cloud in chunks
+            try:
+                chunks_metadata = _upload_to_telegram(temp_file_path, uploaded_file.filename)
+                
+                # Remove temporary file
+                if os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
+                    
+                return jsonify({
+                    'success': True,
+                    'message': f"File uploaded to Telegram storage ({chunks_metadata.get('chunks', 0)} chunks)",
+                    'metadata': chunks_metadata
+                })
+                
+            except Exception as e:
+                logger.error(f"Error uploading to Telegram: {e}")
+                return jsonify({'error': f"Telegram upload failed: {str(e)}"}), 500
+                
+        except Exception as e:
+            logger.error(f"Error in upload_to_telegram: {e}")
+            return jsonify({'error': str(e)}), 500
+    
+    @app.route('/download_from_telegram', methods=['POST'])
+    @login_required
+    def download_from_telegram():
+        """Download file from Telegram storage by reassembling chunks"""
+        try:
+            data = request.get_json()
+            chunk_file_ids = data.get('chunk_file_ids', [])
+            filename = data.get('filename', 'downloaded_file')
+            
+            if not chunk_file_ids:
+                return jsonify({'error': 'No chunk file IDs provided'}), 400
+                
+            # Create temporary path for the downloaded file
+            output_path = os.path.join(temp_dir, safe_filename(filename))
+            
+            # Download and reassemble chunks
+            try:
+                result_path = _download_from_telegram(chunk_file_ids, output_path)
+                
+                # Return the file as a download
+                return send_file(
+                    result_path,
+                    as_attachment=True,
+                    download_name=filename,
+                    mimetype='application/octet-stream'
+                )
+                
+            except Exception as e:
+                logger.error(f"Error downloading from Telegram: {e}")
+                return jsonify({'error': f"Telegram download failed: {str(e)}"}), 500
+                
+        except Exception as e:
+            logger.error(f"Error in download_from_telegram: {e}")
+            return jsonify({'error': str(e)}), 500
+    
+    @app.route('/telegram_files')
+    @login_required
+    def telegram_files():
+        """Get list of files stored in Telegram for the current user"""
+        if hasattr(current_user, 'id') and not current_user.is_anonymous:
+            # In a full implementation, this would query the database
+            # For now, return from session
+            files = session.get('telegram_files', [])
+            return jsonify({'files': files})
+        else:
+            return jsonify({'files': []})
             
     # Register all routes
     return app

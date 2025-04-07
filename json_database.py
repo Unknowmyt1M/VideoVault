@@ -101,6 +101,8 @@ class JSONDatabase:
             'drive_folder_id': video_data.get('drive_folder_id', None),
             'uploaded_to_youtube': video_data.get('uploaded_to_youtube', False),
             'youtube_upload_id': video_data.get('youtube_upload_id', None),
+            'telegram_backup': video_data.get('telegram_backup', False),
+            'telegram_metadata': video_data.get('telegram_metadata', None),
             'user_id': video_data.get('user_id', None)
         }
         

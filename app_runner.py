@@ -113,6 +113,18 @@ def create_app():
     from app import register_routes
     register_routes(app)
     
+    # Import URL upload functionality
+    try:
+        # Import URL-to-Telegram upload functionality
+        from app_url_upload import upload_url_to_telegram
+        # Register the route with our Flask app
+        app.route('/upload_url_to_telegram', methods=['POST'])(login_required(upload_url_to_telegram))
+        logger.info("URL upload functionality registered")
+    except ImportError as e:
+        logger.warning(f"Could not import URL upload module: {e}")
+    except Exception as e:
+        logger.error(f"Error importing URL upload module: {e}")
+    
     return app
 
 if __name__ == '__main__':

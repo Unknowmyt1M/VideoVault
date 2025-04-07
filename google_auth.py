@@ -131,7 +131,7 @@ def login():
     # If no URI is configured in environment, use a fallback for this specific Replit instance
     if not redirect_uri:
         # Fallback to the hardcoded URI that works for this specific Replit project
-        redirect_uri = "https://8be034eb-f8e8-455f-ad3c-9f0fe4017283-00-10pnphln2a520.pike.replit.dev/google_login/callback"
+        redirect_uri = "https://58de4355-ad39-416f-8a04-d0403694a826-00-23egjbjytsyo1.pike.replit.dev/google_login/callback"
         logger.info(f"Using fallback hardcoded Replit URI for auth: {redirect_uri}")
     else:
         logger.info(f"Using environment-configured redirect URI for auth: {redirect_uri}")
@@ -197,7 +197,7 @@ def callback():
     # If no URI is configured in environment, use a fallback for this specific Replit instance
     if not redirect_uri:
         # Fallback to the hardcoded URI that works for this specific Replit project
-        redirect_uri = "https://8be034eb-f8e8-455f-ad3c-9f0fe4017283-00-10pnphln2a520.pike.replit.dev/google_login/callback"
+        redirect_uri = "https://58de4355-ad39-416f-8a04-d0403694a826-00-23egjbjytsyo1.pike.replit.dev/google_login/callback"
         logger.info(f"Using fallback hardcoded Replit URI for token exchange: {redirect_uri}")
     else:
         logger.info(f"Using environment-configured redirect URI for token exchange: {redirect_uri}")

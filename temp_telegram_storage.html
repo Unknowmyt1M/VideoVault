@@ -1,0 +1,434 @@
+{% extends "layout.html" %}
+
+{% block title %}Telegram Storage - VideoVault{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row">
+        <div class="col-lg-8 mx-auto">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h2 class="h4 mb-0">Telegram Storage for Large Files</h2>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        This feature allows you to store files larger than 2GB by splitting them into chunks and storing them on Telegram.
+                    </div>
+
+                    <!-- Upload Section -->
+                    <div class="mb-4">
+                        <h3 class="h5 mb-3">Upload Large File</h3>
+                        <ul class="nav nav-tabs mb-3" id="uploadTabs">
+                            <li class="nav-item">
+                                <a class="nav-link active" id="file-tab" data-bs-toggle="tab" href="#fileUpload">From Device</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" id="url-tab" data-bs-toggle="tab" href="#urlUpload">From URL</a>
+                            </li>
+                        </ul>
+                        
+                        <div class="tab-content">
+                            <!-- Local File Upload -->
+                            <div class="tab-pane fade show active" id="fileUpload">
+                                <form id="uploadForm" enctype="multipart/form-data">
+                                    <div class="mb-3">
+                                        <label for="fileInput" class="form-label">Select File</label>
+                                        <input type="file" class="form-control" id="fileInput" name="file">
+                                        <div class="form-text">Files up to 10GB are supported</div>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary" id="uploadBtn">
+                                        <i class="fas fa-cloud-upload-alt me-2"></i> Upload to Cloud
+                                    </button>
+                                </form>
+                            </div>
+                            
+                            <!-- URL Upload -->
+                            <div class="tab-pane fade" id="urlUpload">
+                                <div class="mb-3">
+                                    <label for="urlInput" class="form-label">Enter URL</label>
+                                    <input type="url" class="form-control" id="urlInput" placeholder="https://example.com/file.mp4">
+                                    <div class="form-text">Direct download links only. YouTube URLs will be processed as videos.</div>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="customFilename" class="form-label">Custom Filename (optional)</label>
+                                    <input type="text" class="form-control" id="customFilename" placeholder="my_video.mp4">
+                                </div>
+                                <button type="button" class="btn btn-primary" id="urlUploadBtn">
+                                    <i class="fas fa-cloud-upload-alt me-2"></i> Upload from URL
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="progress mt-3 d-none" id="uploadProgress">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                        </div>
+                        <div id="uploadStatus" class="mt-2"></div>
+                    </div>
+
+                    <!-- Files List Section -->
+                    <div>
+                        <h3 class="h5 mb-3">Your Uploaded Files</h3>
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Filename</th>
+                                        <th>Size</th>
+                                        <th>Chunks</th>
+                                        <th>Upload Date</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="filesList">
+                                    <tr>
+                                        <td colspan="5" class="text-center">Loading files...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Download Modal -->
+<div class="modal fade" id="downloadModal" tabindex="-1" aria-labelledby="downloadModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="downloadModalLabel">Download File</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Downloading and reassembling the file chunks...</p>
+                <div class="progress">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                </div>
+                <p id="downloadStatus" class="mt-2"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // On page load, fetch the user's Telegram files
+    document.addEventListener('DOMContentLoaded', function() {
+        fetchTelegramFiles();
+        
+        // Handle file upload
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            uploadFile();
+        });
+        
+        // Handle URL upload
+        document.getElementById('urlUploadBtn').addEventListener('click', function() {
+            uploadFromUrl();
+        });
+    });
+    
+    // Function to upload a file to Telegram storage
+    function uploadFile() {
+        const fileInput = document.getElementById('fileInput');
+        const file = fileInput.files[0];
+        
+        if (!file) {
+            showAlert('Please select a file to upload', 'danger');
+            return;
+        }
+        
+        // Show progress bar
+        const progressBar = document.querySelector('#uploadProgress .progress-bar');
+        document.getElementById('uploadProgress').classList.remove('d-none');
+        document.getElementById('uploadBtn').disabled = true;
+        progressBar.style.width = '0%';
+        
+        // Create FormData
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        // Upload the file
+        fetch('/upload_to_telegram', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                showAlert(data.message, 'success');
+                fetchTelegramFiles(); // Refresh the files list
+            } else {
+                showAlert(data.error || 'Unknown error occurred', 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert('Error: ' + error.message, 'danger');
+        })
+        .finally(() => {
+            // Reset the form and progress bar
+            document.getElementById('uploadBtn').disabled = false;
+            simulateUploadProgress(true); // Stop the simulation
+            document.getElementById('uploadForm').reset();
+        });
+        
+        // Simulate upload progress
+        simulateUploadProgress();
+    }
+    
+    // Function to upload from URL
+    function uploadFromUrl() {
+        const urlInput = document.getElementById('urlInput');
+        const url = urlInput.value.trim();
+        const customFilename = document.getElementById('customFilename').value.trim();
+        
+        if (!url) {
+            showAlert('Please enter a URL to upload', 'danger');
+            return;
+        }
+        
+        // Show progress bar
+        const progressBar = document.querySelector('#uploadProgress .progress-bar');
+        document.getElementById('uploadProgress').classList.remove('d-none');
+        document.getElementById('urlUploadBtn').disabled = true;
+        progressBar.style.width = '0%';
+        
+        // Prepare the data
+        const data = {
+            url: url,
+            filename: customFilename || null
+        };
+        
+        // Upload from URL
+        fetch('/upload_url_to_telegram', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                showAlert(data.message, 'success');
+                fetchTelegramFiles(); // Refresh the files list
+            } else {
+                showAlert(data.error || 'Unknown error occurred', 'danger');
+            }
+        })
+        .catch(error => {
+            showAlert('Error: ' + error.message, 'danger');
+        })
+        .finally(() => {
+            // Reset the form and progress bar
+            document.getElementById('urlUploadBtn').disabled = false;
+            simulateUploadProgress(true); // Stop the simulation
+            // Clear the URL field
+            urlInput.value = '';
+            document.getElementById('customFilename').value = '';
+        });
+        
+        // Simulate upload progress
+        simulateUploadProgress();
+    }
+    
+    // Function to simulate upload progress
+    function simulateUploadProgress(stop = false) {
+        const progressBar = document.querySelector('#uploadProgress .progress-bar');
+        
+        if (stop) {
+            // Reset progress
+            clearInterval(window.uploadProgressInterval);
+            progressBar.style.width = '100%';
+            setTimeout(() => {
+                document.getElementById('uploadProgress').classList.add('d-none');
+            }, 1000);
+            return;
+        }
+        
+        let progress = 0;
+        
+        window.uploadProgressInterval = setInterval(() => {
+            // Slowly increase progress to simulate upload
+            if (progress < 90) {
+                progress += Math.random() * 5;
+                progressBar.style.width = `${progress}%`;
+            }
+        }, 500);
+    }
+    
+    // Function to fetch the user's Telegram files
+    function fetchTelegramFiles() {
+        fetch('/telegram_files')
+        .then(response => response.json())
+        .then(data => {
+            const filesList = document.getElementById('filesList');
+            
+            if (data.files && data.files.length > 0) {
+                // Clear the list
+                filesList.innerHTML = '';
+                
+                // Add each file to the table
+                data.files.forEach(file => {
+                    const row = document.createElement('tr');
+                    
+                    // Format date
+                    const uploadDate = new Date(file.upload_date);
+                    const formattedDate = uploadDate.toLocaleDateString() + ' ' + uploadDate.toLocaleTimeString();
+                    
+                    // Format file size
+                    const fileSize = formatFileSize(file.file_size);
+                    
+                    row.innerHTML = `
+                        <td>${file.original_filename}</td>
+                        <td>${fileSize}</td>
+                        <td>${file.chunks}</td>
+                        <td>${formattedDate}</td>
+                        <td>
+                            <button class="btn btn-sm btn-primary download-btn" data-metadata='${file.telegram_metadata}' data-filename="${file.original_filename}">
+                                <i class="fas fa-download"></i> Download
+                            </button>
+                        </td>
+                    `;
+                    filesList.appendChild(row);
+                });
+                
+                // Add event listeners to download buttons
+                document.querySelectorAll('.download-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const metadata = JSON.parse(this.dataset.metadata);
+                        const filename = this.dataset.filename;
+                        downloadFile(metadata, filename);
+                    });
+                });
+            } else {
+                filesList.innerHTML = '<tr><td colspan="5" class="text-center">No files uploaded yet</td></tr>';
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching files:', error);
+            document.getElementById('filesList').innerHTML = 
+                '<tr><td colspan="5" class="text-center text-danger">Error loading files. Please try again.</td></tr>';
+        });
+    }
+    
+    // Function to download a file from Telegram storage
+    function downloadFile(metadata, filename) {
+        // Show the download modal
+        const downloadModal = new bootstrap.Modal(document.getElementById('downloadModal'));
+        downloadModal.show();
+        
+        // Set the progress bar
+        const progressBar = document.querySelector('#downloadModal .progress-bar');
+        progressBar.style.width = '0%';
+        
+        // Prepare the data for the download request
+        const data = {
+            chunk_file_ids: metadata.chunk_file_ids,
+            filename: filename
+        };
+        
+        // Start simulating progress
+        let progress = 0;
+        const progressInterval = setInterval(() => {
+            if (progress < 90) {
+                progress += Math.random() * 10;
+                progressBar.style.width = `${progress}%`;
+            }
+        }, 500);
+        
+        // Make the download request
+        fetch('/download_from_telegram', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => {
+            clearInterval(progressInterval);
+            
+            if (!response.ok) {
+                progressBar.classList.remove('bg-primary');
+                progressBar.classList.add('bg-danger');
+                throw new Error('Download failed');
+            }
+            
+            // Complete the progress bar
+            progressBar.style.width = '100%';
+            document.getElementById('downloadStatus').textContent = 'Download complete! Starting file download...';
+            
+            // Get the filename from the Content-Disposition header if available
+            let contentDisposition = response.headers.get('Content-Disposition');
+            let downloadFilename = filename;
+            
+            if (contentDisposition) {
+                let match = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
+                if (match && match[1]) {
+                    downloadFilename = match[1].replace(/['"]/g, '');
+                }
+            }
+            
+            // Download the file
+            return response.blob()
+                .then(blob => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = downloadFilename;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                });
+        })
+        .catch(error => {
+            clearInterval(progressInterval);
+            console.error('Error downloading file:', error);
+            document.getElementById('downloadStatus').textContent = 'Error: ' + error.message;
+            progressBar.style.width = '100%';
+            progressBar.classList.remove('bg-primary');
+            progressBar.classList.add('bg-danger');
+        });
+    }
+    
+    // Utility function to show alerts
+    function showAlert(message, type) {
+        const alertContainer = document.getElementById('uploadStatus');
+        alertContainer.innerHTML = `
+            <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        `;
+    }
+    
+    // Utility function to format file size
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+</script>
+{% endblock %}
